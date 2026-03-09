@@ -1,21 +1,25 @@
-// Client-side JavaScript for SignalR Chat
+// Client-side JavaScript for SignalR Chat with Rooms
 
 document.addEventListener("DOMContentLoaded", () => {
     // DOM Elements
     const loginSection = document.getElementById("login-section");
     const chatSection = document.getElementById("chat-section");
     const usernameInput = document.getElementById("username-input");
+    const roomSelect = document.getElementById("room-select");
     const joinBtn = document.getElementById("join-btn");
     const messageInput = document.getElementById("message-input");
     const sendBtn = document.getElementById("send-btn");
     const messagesList = document.getElementById("messages-list");
     const usersList = document.getElementById("users-list");
+    const roomsList = document.getElementById("rooms-list");
     const userCount = document.getElementById("user-count");
+    const currentRoomDisplay = document.getElementById("current-room");
     const connectionStatus = document.getElementById("connection-status");
     const typingIndicator = document.getElementById("typing-indicator");
     const typingUsers = document.getElementById("typing-users");
 
     let currentUser = "";
+    let currentRoom = "general";
     let typingTimeout = null;
     const typingUsers_set = new Set();
     
@@ -43,7 +47,7 @@ document.addEventListener("DOMContentLoaded", () => {
         appendMessage(message.sender, message.content, message.timestamp);
     });
 
-    // 2. Receive message history upon joining
+    // 2. Receive message history upon joining a room
     connection.on("ReceiveMessageHistory", (messages) => {
         messagesList.innerHTML = ""; // Clear existing
         messages.forEach(msg => {
@@ -53,17 +57,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 3. User joined notification
     connection.on("UserJoined", (username) => {
-        appendSystemMessage(`${username} joined the chat`);
+        appendSystemMessage(`${username} joined the room`);
     });
 
     // 4. User left notification
     connection.on("UserLeft", (username) => {
-        appendSystemMessage(`${username} left the chat`);
+        appendSystemMessage(`${username} left the room`);
         typingUsers_set.delete(username);
         updateTypingIndicator();
     });
 
-    // 5. Update the active user list
+    // 5. Update the active user list for current room
     connection.on("UpdateUserList", (users) => {
         usersList.innerHTML = "";
         userCount.textContent = users.length;
@@ -75,7 +79,23 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
-    // 6. User is typing notification
+    // 6. Receive available rooms and current room
+    connection.on("ReceiveRooms", (rooms, activeRoom) => {
+        currentRoom = activeRoom;
+        currentRoomDisplay.textContent = activeRoom;
+        
+        roomsList.innerHTML = "";
+        rooms.forEach(room => {
+            const li = document.createElement("li");
+            li.className = room === currentRoom ? "active" : "";
+            li.textContent = room;
+            li.style.cursor = "pointer";
+            li.addEventListener("click", () => changeRoom(room));
+            roomsList.appendChild(li);
+        });
+    });
+
+    // 7. User is typing notification
     connection.on("UserIsTyping", (username) => {
         if (username !== currentUser) {
             typingUsers_set.add(username);
@@ -83,7 +103,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // 7. User stopped typing notification
+    // 8. User stopped typing notification
     connection.on("UserStoppedTyping", (username) => {
         typingUsers_set.delete(username);
         updateTypingIndicator();
@@ -100,9 +120,9 @@ document.addEventListener("DOMContentLoaded", () => {
         connectionStatus.textContent = "Connected";
         connectionStatus.className = "status-indicator connected";
         enableChatControls();
-        // Re-join the chat with the same username
+        // Re-join the chat with the same username and room
         if (currentUser) {
-            connection.invoke("JoinChat", currentUser).catch(console.error);
+            connection.invoke("JoinChat", currentUser, currentRoom).catch(console.error);
         }
     });
 
@@ -161,12 +181,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function joinChat() {
         const username = usernameInput.value.trim();
+        const room = roomSelect.value;
+        
         if (!username) return;
 
         currentUser = username;
         
-        // Invoke the JoinChat method on the Hub
-        connection.invoke("JoinChat", username)
+        // Invoke the JoinChat method on the Hub with room
+        connection.invoke("JoinChat", username, room)
             .then(() => {
                 // Switch UI from Login to Chat
                 loginSection.classList.add("hidden");
@@ -180,6 +202,27 @@ document.addEventListener("DOMContentLoaded", () => {
             .catch(err => {
                 console.error("Error joining chat:", err);
                 alert("Failed to join chat. Please try again.");
+            });
+    }
+
+    function changeRoom(newRoom) {
+        if (newRoom === currentRoom) return;
+        
+        connection.invoke("ChangeRoom", currentUser, newRoom)
+            .then(() => {
+                currentRoom = newRoom;
+                currentRoomDisplay.textContent = newRoom;
+                typingUsers_set.clear();
+                updateTypingIndicator();
+                messageInput.focus();
+                
+                // Update room list highlighting
+                Array.from(roomsList.querySelectorAll("li")).forEach(li => {
+                    li.className = li.textContent === newRoom ? "active" : "";
+                });
+            })
+            .catch(err => {
+                console.error("Error changing room:", err);
             });
     }
 
@@ -226,7 +269,6 @@ document.addEventListener("DOMContentLoaded", () => {
     function updateTypingIndicator() {
         if (typingUsers_set.size === 0) {
             typingIndicator.classList.add("hidden");
-            typingUsers_set.clear();
         } else {
             typingIndicator.classList.remove("hidden");
             const userList = Array.from(typingUsers_set).join(", ");
