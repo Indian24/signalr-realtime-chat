@@ -1,0 +1,14 @@
+﻿@model SignalRChat.Models.ErrorViewModel
+@{
+    ViewData["Title"] = "Error";
+    var reqId = Model?.RequestId ?? HttpContext?.TraceIdentifier;
+}
+<h1 class="text-danger">Error</h1>
+<p>An error occurred while processing your request.</p>
+
+@if (!string.IsNullOrEmpty(reqId))
+{
+    <div>
+        <strong>Request ID:</strong> <code>@reqId</code>
+    </div>
+}
