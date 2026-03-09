@@ -12,14 +12,24 @@ document.addEventListener("DOMContentLoaded", () => {
     const usersList = document.getElementById("users-list");
     const userCount = document.getElementById("user-count");
     const connectionStatus = document.getElementById("connection-status");
+    const typingIndicator = document.getElementById("typing-indicator");
+    const typingUsers = document.getElementById("typing-users");
 
     let currentUser = "";
+    let typingTimeout = null;
+    const typingUsers_set = new Set();
     
     // Initialize SignalR Connection
     // The URL must match the one mapped in Program.cs
     const connection = new signalR.HubConnectionBuilder()
         .withUrl("/chatHub")
-        .withAutomaticReconnect() // Automatically try to reconnect if connection drops
+        .withAutomaticReconnect([
+            0,      // Immediate first retry
+            1000,   // 1 second
+            3000,   // 3 seconds
+            5000,   // 5 seconds
+            10000,  // 10 seconds
+        ]) // Automatically try to reconnect with escalating delays
         .configureLogging(signalR.LogLevel.Information) // Useful for debugging
         .build();
 
@@ -46,7 +56,14 @@ document.addEventListener("DOMContentLoaded", () => {
         appendSystemMessage(`${username} joined the chat`);
     });
 
-    // 4. Update the active user list
+    // 4. User left notification
+    connection.on("UserLeft", (username) => {
+        appendSystemMessage(`${username} left the chat`);
+        typingUsers_set.delete(username);
+        updateTypingIndicator();
+    });
+
+    // 5. Update the active user list
     connection.on("UpdateUserList", (users) => {
         usersList.innerHTML = "";
         userCount.textContent = users.length;
@@ -56,6 +73,20 @@ document.addEventListener("DOMContentLoaded", () => {
             li.textContent = user.username + (user.username === currentUser ? " (You)" : "");
             usersList.appendChild(li);
         });
+    });
+
+    // 6. User is typing notification
+    connection.on("UserIsTyping", (username) => {
+        if (username !== currentUser) {
+            typingUsers_set.add(username);
+            updateTypingIndicator();
+        }
+    });
+
+    // 7. User stopped typing notification
+    connection.on("UserStoppedTyping", (username) => {
+        typingUsers_set.delete(username);
+        updateTypingIndicator();
     });
 
     // Handle connection state changes
@@ -70,14 +101,16 @@ document.addEventListener("DOMContentLoaded", () => {
         connectionStatus.className = "status-indicator connected";
         enableChatControls();
         // Re-join the chat with the same username
-        connection.invoke("JoinChat", currentUser).catch(console.error);
+        if (currentUser) {
+            connection.invoke("JoinChat", currentUser).catch(console.error);
+        }
     });
 
     connection.onclose(error => {
         connectionStatus.textContent = "Disconnected";
         connectionStatus.className = "status-indicator";
         disableChatControls();
-        appendSystemMessage("Connection closed. Please refresh to reconnect.");
+        appendSystemMessage("Connection closed. Attempting to reconnect...");
     });
 
     // Start the connection
@@ -121,6 +154,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 sendMessage();
             }
         });
+
+        // Notify server when user is typing
+        messageInput.addEventListener("input", notifyTyping);
     }
 
     function joinChat() {
@@ -155,13 +191,49 @@ document.addEventListener("DOMContentLoaded", () => {
         messageInput.value = "";
         messageInput.focus();
 
+        // Clear typing indicator
+        clearTypingTimer();
+        connection.invoke("NotifyStoppedTyping", currentUser).catch(console.error);
+
         // Invoke SendMessage on the Hub
         connection.invoke("SendMessage", currentUser, message)
             .catch(err => {
                 console.error("Error sending message:", err);
-                // In a real app, you might want to show this message failed to send
                 appendSystemMessage("Failed to send message: " + message);
             });
+    }
+
+    // Debounced typing notification
+    function notifyTyping() {
+        clearTypingTimer();
+        
+        // Notify server that user is typing
+        connection.invoke("NotifyTyping", currentUser).catch(console.error);
+        
+        // Set a timeout to notify when typing stops (2 seconds of inactivity)
+        typingTimeout = setTimeout(() => {
+            connection.invoke("NotifyStoppedTyping", currentUser).catch(console.error);
+        }, 2000);
+    }
+
+    function clearTypingTimer() {
+        if (typingTimeout) {
+            clearTimeout(typingTimeout);
+            typingTimeout = null;
+        }
+    }
+
+    function updateTypingIndicator() {
+        if (typingUsers_set.size === 0) {
+            typingIndicator.classList.add("hidden");
+            typingUsers_set.clear();
+        } else {
+            typingIndicator.classList.remove("hidden");
+            const userList = Array.from(typingUsers_set).join(", ");
+            typingUsers.textContent = typingUsers_set.size === 1 
+                ? `${userList} is typing` 
+                : `${userList} are typing`;
+        }
     }
 
     function appendMessage(sender, content, timestamp) {

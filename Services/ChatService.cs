@@ -34,6 +34,12 @@ namespace SignalRChat.Services
             _store.ActiveUsers.TryRemove(connectionId, out _);
         }
 
+        public User? GetUserByConnectionId(string connectionId)
+        {
+            _store.ActiveUsers.TryGetValue(connectionId, out var user);
+            return user;
+        }
+
         public ChatMessage CreateAndStoreMessage(string username, string content)
         {
             var message = new ChatMessage

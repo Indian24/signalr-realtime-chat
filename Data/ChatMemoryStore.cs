@@ -16,10 +16,15 @@ namespace SignalRChat.Data
         // Using ConcurrentQueue to ensure thread safety when adding messages
         public ConcurrentQueue<ChatMessage> RecentMessages { get; } = new();
         
-        private const int MaxMessageHistory = 50;
+        /// <summary>
+        /// Maximum number of recent messages to keep in memory.
+        /// Increased to 200 for a richer chat history while maintaining reasonable memory usage.
+        /// </summary>
+        private const int MaxMessageHistory = 200;
 
         /// <summary>
         /// Adds a message to the history, ensuring we don't exceed the maximum capacity.
+        /// This prevents unbounded memory growth in long-running chat sessions.
         /// </summary>
         public void AddMessage(ChatMessage message)
         {

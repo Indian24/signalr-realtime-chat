@@ -11,6 +11,7 @@ namespace SignalRChat.Services
     {
         void UserJoined(string connectionId, string username);
         void UserLeft(string connectionId);
+        User? GetUserByConnectionId(string connectionId);
         ChatMessage CreateAndStoreMessage(string username, string content);
         IEnumerable<ChatMessage> GetRecentMessages();
         IEnumerable<User> GetActiveUsers();

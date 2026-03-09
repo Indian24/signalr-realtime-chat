@@ -8,6 +8,9 @@ namespace SignalRChat.Hubs
     /// <summary>
     /// The SignalR Hub is the central component for real-time communication.
     /// It handles incoming connections, disconnections, and message broadcasting.
+    /// 
+    /// Best Practice: Hubs are transient - a new instance is created for every method invocation.
+    /// Therefore, all state must be persisted in the ChatService or database, not in the Hub itself.
     /// </summary>
     public class ChatHub : Hub
     {
@@ -33,10 +36,17 @@ namespace SignalRChat.Hubs
         public override async Task OnDisconnectedAsync(Exception? exception)
         {
             // Clean up user from our store
-            _chatService.UserLeft(Context.ConnectionId);
-            
-            // Notify other clients to update their user list
-            await Clients.Others.SendAsync("UpdateUserList", _chatService.GetActiveUsers());
+            var user = _chatService.GetUserByConnectionId(Context.ConnectionId);
+            if (user != null)
+            {
+                _chatService.UserLeft(Context.ConnectionId);
+                
+                // Notify other clients that a user left
+                await Clients.Others.SendAsync("UserLeft", user.Username);
+                
+                // Update the user list for everyone
+                await Clients.All.SendAsync("UpdateUserList", _chatService.GetActiveUsers());
+            }
             
             await base.OnDisconnectedAsync(exception);
         }
@@ -68,9 +78,29 @@ namespace SignalRChat.Hubs
             // Use the service to store the message
             var chatMessage = _chatService.CreateAndStoreMessage(username, message);
             
+            // Clear typing indicator when a message is sent
+            await Clients.All.SendAsync("UserStoppedTyping", username);
+            
             // Broadcast the message to all connected clients
             // Best Practice: Use structured data (objects) rather than multiple parameters
             await Clients.All.SendAsync("ReceiveMessage", chatMessage);
+        }
+
+        /// <summary>
+        /// Called by clients to notify that they're typing.
+        /// </summary>
+        public async Task NotifyTyping(string username)
+        {
+            // Broadcast to other clients (not the sender)
+            await Clients.Others.SendAsync("UserIsTyping", username);
+        }
+
+        /// <summary>
+        /// Called by clients to clear the typing indicator.
+        /// </summary>
+        public async Task NotifyStoppedTyping(string username)
+        {
+            await Clients.Others.SendAsync("UserStoppedTyping", username);
         }
     }
 }
