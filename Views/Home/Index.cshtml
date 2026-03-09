@@ -1,0 +1,48 @@
+@{
+    ViewData["Title"] = "Real-time Chat";
+}
+
+<div class="chat-container">
+    <div id="login-section" class="card">
+        <h2>Join Chat</h2>
+        <p>Enter a username to join the real-time chat demonstration.</p>
+        <div class="form-group">
+            <input type="text" id="username-input" placeholder="Username..." maxlength="20" class="form-control" />
+        </div>
+        <button id="join-btn" class="btn btn-primary" disabled>Join</button>
+    </div>
+
+    <div id="chat-section" class="hidden">
+        <div class="chat-layout">
+            <div class="chat-main card">
+                <div class="chat-header">
+                    <h2>Chat Room</h2>
+                    <span id="connection-status" class="status-indicator">Connecting...</span>
+                </div>
+                
+                <div id="messages-list" class="messages-container">
+                    <!-- Messages will be injected here -->
+                </div>
+                
+                <div class="message-input-area">
+                    <input type="text" id="message-input" placeholder="Type a message..." class="form-control" />
+                    <button id="send-btn" class="btn btn-primary">Send</button>
+                </div>
+            </div>
+            
+            <div class="chat-sidebar card">
+                <div class="sidebar-header">
+                    <h3>Active Users</h3>
+                    <span id="user-count" class="badge">0</span>
+                </div>
+                <ul id="users-list" class="users-list">
+                    <!-- Active users will be injected here -->
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/chat.js" asp-append-version="true"></script>
+}
