@@ -51,6 +51,17 @@ namespace SignalRChat.Services
             return user;
         }
 
+        public User? GetUserByUsername(string username)
+        {
+            return _store.ActiveUsers.Values.FirstOrDefault(u => u.Username == username);
+        }
+
+        public string? GetConnectionIdByUsername(string username)
+        {
+            var user = _store.ActiveUsers.Values.FirstOrDefault(u => u.Username == username);
+            return user?.ConnectionId;
+        }
+
         public ChatMessage CreateAndStoreMessage(string username, string content, string room)
         {
             var message = new ChatMessage
@@ -64,14 +75,33 @@ namespace SignalRChat.Services
             return message;
         }
 
+        public ChatMessage CreateAndStorePrivateMessage(string sender, string recipient, string content)
+        {
+            var message = new ChatMessage
+            {
+                Sender = sender,
+                Content = content,
+                Recipient = recipient,
+                Room = "dm" // Private messages don't belong to a room
+            };
+            
+            _store.AddMessage(message);
+            return message;
+        }
+
         public IEnumerable<ChatMessage> GetRecentMessages(string room)
         {
-            return _store.RecentMessages.Where(m => m.Room == room);
+            return _store.RecentMessages.Where(m => m.Room == room && !m.IsPrivate);
         }
 
         public IEnumerable<User> GetActiveUsersInRoom(string room)
         {
             return _store.ActiveUsers.Values.Where(u => u.CurrentRoom == room);
+        }
+
+        public IEnumerable<User> GetAllActiveUsers()
+        {
+            return _store.ActiveUsers.Values;
         }
 
         public string[] GetAvailableRooms()

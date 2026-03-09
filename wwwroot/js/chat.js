@@ -1,4 +1,4 @@
-// Client-side JavaScript for SignalR Chat with Rooms
+// Client-side JavaScript for SignalR Chat with Rooms and Private Messaging
 
 document.addEventListener("DOMContentLoaded", () => {
     // DOM Elements
@@ -8,33 +8,30 @@ document.addEventListener("DOMContentLoaded", () => {
     const roomSelect = document.getElementById("room-select");
     const joinBtn = document.getElementById("join-btn");
     const messageInput = document.getElementById("message-input");
+    const dmSelect = document.getElementById("dm-select");
     const sendBtn = document.getElementById("send-btn");
     const messagesList = document.getElementById("messages-list");
     const usersList = document.getElementById("users-list");
     const roomsList = document.getElementById("rooms-list");
     const userCount = document.getElementById("user-count");
     const currentRoomDisplay = document.getElementById("current-room");
+    const currentModeDisplay = document.getElementById("current-mode");
     const connectionStatus = document.getElementById("connection-status");
     const typingIndicator = document.getElementById("typing-indicator");
     const typingUsers = document.getElementById("typing-users");
 
     let currentUser = "";
     let currentRoom = "general";
+    let selectedDMUser = ""; // Track selected DM user
     let typingTimeout = null;
     const typingUsers_set = new Set();
+    const allUsers = new Set();
     
     // Initialize SignalR Connection
-    // The URL must match the one mapped in Program.cs
     const connection = new signalR.HubConnectionBuilder()
         .withUrl("/chatHub")
-        .withAutomaticReconnect([
-            0,      // Immediate first retry
-            1000,   // 1 second
-            3000,   // 3 seconds
-            5000,   // 5 seconds
-            10000,  // 10 seconds
-        ]) // Automatically try to reconnect with escalating delays
-        .configureLogging(signalR.LogLevel.Information) // Useful for debugging
+        .withAutomaticReconnect([0, 1000, 3000, 5000, 10000])
+        .configureLogging(signalR.LogLevel.Information)
         .build();
 
     // Setup UI event listeners
@@ -42,32 +39,42 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // SignalR Event Handlers
     
-    // 1. Receive a new message
+    // 1. Receive a public message
     connection.on("ReceiveMessage", (message) => {
-        appendMessage(message.sender, message.content, message.timestamp);
+        appendMessage(message.sender, message.content, message.timestamp, false);
     });
 
-    // 2. Receive message history upon joining a room
+    // 2. Receive private message
+    connection.on("ReceivePrivateMessage", (message) => {
+        appendMessage(message.sender, message.content, message.timestamp, true, message.recipient);
+    });
+
+    // 3. Private message error
+    connection.on("PrivateMessageError", (errorMsg) => {
+        appendSystemMessage(`Error: ${errorMsg}`);
+    });
+
+    // 4. Receive message history upon joining a room
     connection.on("ReceiveMessageHistory", (messages) => {
-        messagesList.innerHTML = ""; // Clear existing
+        messagesList.innerHTML = "";
         messages.forEach(msg => {
-            appendMessage(msg.sender, msg.content, msg.timestamp);
+            appendMessage(msg.sender, msg.content, msg.timestamp, msg.isPrivate, msg.recipient);
         });
     });
 
-    // 3. User joined notification
+    // 5. User joined notification
     connection.on("UserJoined", (username) => {
         appendSystemMessage(`${username} joined the room`);
     });
 
-    // 4. User left notification
+    // 6. User left notification
     connection.on("UserLeft", (username) => {
         appendSystemMessage(`${username} left the room`);
         typingUsers_set.delete(username);
         updateTypingIndicator();
     });
 
-    // 5. Update the active user list for current room
+    // 7. Update the active user list for current room
     connection.on("UpdateUserList", (users) => {
         usersList.innerHTML = "";
         userCount.textContent = users.length;
@@ -75,14 +82,35 @@ document.addEventListener("DOMContentLoaded", () => {
         users.forEach(user => {
             const li = document.createElement("li");
             li.textContent = user.username + (user.username === currentUser ? " (You)" : "");
+            li.style.cursor = "pointer";
+            li.addEventListener("click", () => startDirectMessage(user.username));
             usersList.appendChild(li);
         });
     });
 
-    // 6. Receive available rooms and current room
+    // 8. Receive all active users (for DM dropdown)
+    connection.on("ReceiveActiveUsers", (users) => {
+        allUsers.clear();
+        dmSelect.innerHTML = '<option value="">Public</option>';
+        
+        users.forEach(user => {
+            if (user.username !== currentUser) {
+                allUsers.add(user.username);
+                const option = document.createElement("option");
+                option.value = user.username;
+                option.textContent = user.username;
+                dmSelect.appendChild(option);
+            }
+        });
+    });
+
+    // 9. Receive available rooms and current room
     connection.on("ReceiveRooms", (rooms, activeRoom) => {
         currentRoom = activeRoom;
         currentRoomDisplay.textContent = activeRoom;
+        selectedDMUser = ""; // Clear DM selection when changing rooms
+        dmSelect.value = "";
+        updateModeDisplay();
         
         roomsList.innerHTML = "";
         rooms.forEach(room => {
@@ -95,7 +123,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
-    // 7. User is typing notification
+    // 10. User is typing notification
     connection.on("UserIsTyping", (username) => {
         if (username !== currentUser) {
             typingUsers_set.add(username);
@@ -103,7 +131,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // 8. User stopped typing notification
+    // 11. User stopped typing notification
     connection.on("UserStoppedTyping", (username) => {
         typingUsers_set.delete(username);
         updateTypingIndicator();
@@ -120,7 +148,6 @@ document.addEventListener("DOMContentLoaded", () => {
         connectionStatus.textContent = "Connected";
         connectionStatus.className = "status-indicator connected";
         enableChatControls();
-        // Re-join the chat with the same username and room
         if (currentUser) {
             connection.invoke("JoinChat", currentUser, currentRoom).catch(console.error);
         }
@@ -145,38 +172,37 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // Initialize
     startConnection();
 
     // Helper Functions
     function setupUI() {
-        // Enable join button only if username is entered
         usernameInput.addEventListener("input", (e) => {
             joinBtn.disabled = e.target.value.trim().length === 0 || connection.state !== signalR.HubConnectionState.Connected;
         });
 
-        // Join on Enter key
         usernameInput.addEventListener("keypress", (e) => {
             if (e.key === "Enter" && !joinBtn.disabled) {
                 joinChat();
             }
         });
 
-        // Join on button click
         joinBtn.addEventListener("click", joinChat);
-
-        // Send message on button click
         sendBtn.addEventListener("click", sendMessage);
 
-        // Send message on Enter key
         messageInput.addEventListener("keypress", (e) => {
             if (e.key === "Enter" && !sendBtn.disabled) {
                 sendMessage();
             }
         });
 
-        // Notify server when user is typing
         messageInput.addEventListener("input", notifyTyping);
+        
+        // DM selection changes
+        dmSelect.addEventListener("change", (e) => {
+            selectedDMUser = e.target.value;
+            updateModeDisplay();
+            messagesList.innerHTML = ""; // Clear message history when switching
+        });
     }
 
     function joinChat() {
@@ -187,10 +213,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         currentUser = username;
         
-        // Invoke the JoinChat method on the Hub with room
         connection.invoke("JoinChat", username, room)
             .then(() => {
-                // Switch UI from Login to Chat
                 loginSection.classList.add("hidden");
                 chatSection.classList.remove("hidden");
                 
@@ -212,11 +236,13 @@ document.addEventListener("DOMContentLoaded", () => {
             .then(() => {
                 currentRoom = newRoom;
                 currentRoomDisplay.textContent = newRoom;
+                selectedDMUser = "";
+                dmSelect.value = "";
                 typingUsers_set.clear();
                 updateTypingIndicator();
+                updateModeDisplay();
                 messageInput.focus();
                 
-                // Update room list highlighting
                 Array.from(roomsList.querySelectorAll("li")).forEach(li => {
                     li.className = li.textContent === newRoom ? "active" : "";
                 });
@@ -226,34 +252,45 @@ document.addEventListener("DOMContentLoaded", () => {
             });
     }
 
+    function startDirectMessage(username) {
+        dmSelect.value = username;
+        selectedDMUser = username;
+        updateModeDisplay();
+        messagesList.innerHTML = ""; // Clear message history
+        messageInput.focus();
+    }
+
     function sendMessage() {
         const message = messageInput.value.trim();
         if (!message) return;
 
-        // Clear input early for better UX
         messageInput.value = "";
         messageInput.focus();
 
-        // Clear typing indicator
         clearTypingTimer();
         connection.invoke("NotifyStoppedTyping", currentUser).catch(console.error);
 
-        // Invoke SendMessage on the Hub
-        connection.invoke("SendMessage", currentUser, message)
-            .catch(err => {
-                console.error("Error sending message:", err);
-                appendSystemMessage("Failed to send message: " + message);
-            });
+        if (selectedDMUser) {
+            // Send private message
+            connection.invoke("SendPrivateMessage", currentUser, selectedDMUser, message)
+                .catch(err => {
+                    console.error("Error sending private message:", err);
+                    appendSystemMessage("Failed to send private message.");
+                });
+        } else {
+            // Send public message
+            connection.invoke("SendMessage", currentUser, message)
+                .catch(err => {
+                    console.error("Error sending message:", err);
+                    appendSystemMessage("Failed to send message: " + message);
+                });
+        }
     }
 
-    // Debounced typing notification
     function notifyTyping() {
         clearTypingTimer();
-        
-        // Notify server that user is typing
         connection.invoke("NotifyTyping", currentUser).catch(console.error);
         
-        // Set a timeout to notify when typing stops (2 seconds of inactivity)
         typingTimeout = setTimeout(() => {
             connection.invoke("NotifyStoppedTyping", currentUser).catch(console.error);
         }, 2000);
@@ -263,6 +300,14 @@ document.addEventListener("DOMContentLoaded", () => {
         if (typingTimeout) {
             clearTimeout(typingTimeout);
             typingTimeout = null;
+        }
+    }
+
+    function updateModeDisplay() {
+        if (selectedDMUser) {
+            currentModeDisplay.textContent = "Private message";
+        } else {
+            currentModeDisplay.textContent = "Chat Room";
         }
     }
 
@@ -278,17 +323,29 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    function appendMessage(sender, content, timestamp) {
+    function appendMessage(sender, content, timestamp, isPrivate, recipient) {
         const time = new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const isSelf = sender === currentUser;
         
         const messageDiv = document.createElement("div");
-        messageDiv.className = `message ${isSelf ? 'self' : ''}`;
+        let className = `message ${isSelf ? 'self' : ''}`;
+        if (isPrivate) className += ' private-message';
+        messageDiv.className = className;
+        
+        let headerHtml = `<span class="message-sender">${sender}</span>`;
+        if (isPrivate) {
+            headerHtml += ` <span class="message-badge">Private</span>`;
+            if (!isSelf) {
+                headerHtml += ` <span class="message-to">to you</span>`;
+            } else {
+                headerHtml += ` <span class="message-to">to ${recipient}</span>`;
+            }
+        }
+        headerHtml += `<span class="message-time">${time}</span>`;
         
         messageDiv.innerHTML = `
             <div class="message-header">
-                <span class="message-sender">${sender}</span>
-                <span class="message-time">${time}</span>
+                ${headerHtml}
             </div>
             <div class="message-bubble">${escapeHtml(content)}</div>
         `;
@@ -319,7 +376,6 @@ document.addEventListener("DOMContentLoaded", () => {
         sendBtn.disabled = false;
     }
 
-    // Security: Escape HTML to prevent XSS
     function escapeHtml(unsafe) {
         return unsafe
             .replace(/&/g, "&amp;")

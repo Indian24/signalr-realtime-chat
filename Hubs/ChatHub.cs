@@ -7,8 +7,7 @@ namespace SignalRChat.Hubs
 {
     /// <summary>
     /// The SignalR Hub is the central component for real-time communication.
-    /// Uses SignalR Groups to implement chat rooms - users are added to a group
-    /// corresponding to their current room, and messages are sent only to that group.
+    /// Supports both group messaging (chat rooms) and direct private messages.
     /// 
     /// Best Practice: Hubs are transient - a new instance is created for every method invocation.
     /// Therefore, all state must be persisted in the ChatService or database, not in the Hub itself.
@@ -70,12 +69,19 @@ namespace SignalRChat.Hubs
             var rooms = _chatService.GetAvailableRooms();
             await Clients.Caller.SendAsync("ReceiveRooms", rooms, room);
             
+            // Send all active users for private messaging
+            var allUsers = _chatService.GetAllActiveUsers();
+            await Clients.Caller.SendAsync("ReceiveActiveUsers", allUsers);
+            
             // Broadcast to everyone in the room that a new user joined
             await Clients.Group(room).SendAsync("UserJoined", username);
             
             // Update the user list for everyone in the room
             await Clients.Group(room).SendAsync("UpdateUserList", 
                 _chatService.GetActiveUsersInRoom(room));
+            
+            // Notify all clients about the updated user list (for private messaging)
+            await Clients.All.SendAsync("ReceiveActiveUsers", _chatService.GetAllActiveUsers());
         }
 
         /// <summary>
@@ -131,6 +137,36 @@ namespace SignalRChat.Hubs
             
             // Broadcast the message only to the room group
             await Clients.Group(user.CurrentRoom).SendAsync("ReceiveMessage", chatMessage);
+        }
+
+        /// <summary>
+        /// Called by clients to send a private message to a specific user.
+        /// Uses Clients.Client(connectionId) to send directly to the recipient.
+        /// </summary>
+        public async Task SendPrivateMessage(string senderUsername, string recipientUsername, string message)
+        {
+            // Verify sender is authenticated
+            var sender = _chatService.GetUserByConnectionId(Context.ConnectionId);
+            if (sender == null || sender.Username != senderUsername) return;
+
+            // Find recipient's connection ID
+            var recipientConnectionId = _chatService.GetConnectionIdByUsername(recipientUsername);
+            if (recipientConnectionId == null) 
+            {
+                // Recipient not found or offline
+                await Clients.Caller.SendAsync("PrivateMessageError", 
+                    $"User '{recipientUsername}' is not available.");
+                return;
+            }
+
+            // Create and store the private message
+            var chatMessage = _chatService.CreateAndStorePrivateMessage(senderUsername, recipientUsername, message);
+            
+            // Send to sender (for display in their chat)
+            await Clients.Caller.SendAsync("ReceivePrivateMessage", chatMessage);
+            
+            // Send to recipient (for display in their chat)
+            await Clients.Client(recipientConnectionId).SendAsync("ReceivePrivateMessage", chatMessage);
         }
 
         /// <summary>

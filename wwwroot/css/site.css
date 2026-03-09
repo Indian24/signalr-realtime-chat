@@ -8,6 +8,7 @@
     --card-bg: #ffffff;
     --success-color: #28a745;
     --system-msg-color: #6a737d;
+    --private-msg-color: #9e5ba8;
 }
 
 body {
@@ -183,16 +184,37 @@ body {
 
 .message-header {
     margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
 .message-sender {
     font-weight: 600;
-    margin-right: 8px;
 }
 
 .message-time {
     color: var(--system-msg-color);
     font-size: 0.75rem;
+    margin-left: auto;
+}
+
+.message-badge {
+    display: inline-block;
+    background-color: var(--private-msg-color);
+    color: white;
+    font-size: 0.65rem;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.message-to {
+    color: var(--private-msg-color);
+    font-size: 0.85rem;
+    font-style: italic;
 }
 
 .message-bubble {
@@ -211,6 +233,16 @@ body {
 .message.self .message-bubble {
     background-color: #e1f0ff;
     border-color: #c8e1ff;
+}
+
+.message.private-message .message-bubble {
+    background-color: #f0e5f6;
+    border-color: #dcc8e8;
+}
+
+.message.self.private-message .message-bubble {
+    background-color: #e5d5f0;
+    border-color: #d5c2e8;
 }
 
 .system-message {
@@ -356,6 +388,11 @@ body {
     border-bottom: 1px solid var(--bg-color);
     display: flex;
     align-items: center;
+    cursor: pointer;
+}
+
+.users-list li:hover {
+    background-color: var(--bg-color);
 }
 
 .users-list li::before {

@@ -13,9 +13,13 @@ namespace SignalRChat.Services
         void UserLeft(string connectionId);
         void UserChangedRoom(string connectionId, string newRoom);
         User? GetUserByConnectionId(string connectionId);
+        User? GetUserByUsername(string username);
+        string? GetConnectionIdByUsername(string username);
         ChatMessage CreateAndStoreMessage(string username, string content, string room);
+        ChatMessage CreateAndStorePrivateMessage(string sender, string recipient, string content);
         IEnumerable<ChatMessage> GetRecentMessages(string room);
         IEnumerable<User> GetActiveUsersInRoom(string room);
+        IEnumerable<User> GetAllActiveUsers();
         string[] GetAvailableRooms();
     }
 }
