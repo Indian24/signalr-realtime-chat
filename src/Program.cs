@@ -44,4 +44,10 @@ app.MapControllerRoute(
 // SignalR endpoint
 app.MapHub<ChatHub>("/chatHub");
 
+app.MapGet("/", context =>
+{
+    context.Response.Redirect("/Home/Index");
+    return Task.CompletedTask;
+});
+
 app.Run();
