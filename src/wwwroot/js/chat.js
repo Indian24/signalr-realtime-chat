@@ -158,3 +158,27 @@ messagesList.appendChild(div);
 
 });
 
+
+
+const userCount = document.getElementById("user-count");
+
+connection.on("ReceiveActiveUsers", users => {
+
+usersList.innerHTML="";
+
+users.forEach(u => {
+
+const li=document.createElement("li");
+
+li.innerText = (u.username || u.Username);
+
+usersList.appendChild(li);
+
+});
+
+if(userCount){
+userCount.innerText = users.length;
+}
+
+});
+
